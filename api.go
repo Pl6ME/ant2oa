@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log"
@@ -12,6 +14,54 @@ import (
 
 	"github.com/joho/godotenv"
 )
+
+// Get admin password from env, default to "admin"
+func getAdminPassword() string {
+	pw := os.Getenv("ADMIN_PASSWORD")
+	if pw == "" {
+		pw = "admin"
+	}
+	return pw
+}
+
+// checkAuth verifies basic authentication
+func checkAuth(r *http.Request) bool {
+	auth := r.Header.Get("Authorization")
+	if auth == "" {
+		return false
+	}
+
+	const prefix = "Basic "
+	if !strings.HasPrefix(auth, prefix) {
+		return false
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(auth[len(prefix):])
+	if err != nil {
+		return false
+	}
+
+	expectedPW := getAdminPassword()
+	// Use constant-time comparison to prevent timing attacks
+	return subtle.ConstantTimeCompare(decoded, []byte(":"+expectedPW)) == 1
+}
+
+func configWebHandler(w http.ResponseWriter, r *http.Request) {
+	if !checkAuth(r) {
+		w.Header().Set("WWW-Authenticate", `Basic realm="ant2oa"`)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	f, err := webFS.Open("web/index.html")
+	if err != nil {
+		http.Error(w, "Web UI not found", 404)
+		return
+	}
+	defer f.Close()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	io.Copy(w, f)
+}
 
 // ================= Handlers =================
 
@@ -334,6 +384,13 @@ func modelsHandler(base string) http.HandlerFunc {
 // ================= Web Config API =================
 
 func configHandler(w http.ResponseWriter, r *http.Request) {
+	// Check auth
+	if !checkAuth(r) {
+		w.Header().Set("WWW-Authenticate", `Basic realm="ant2oa"`)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	if r.Method == "GET" {
 		_ = godotenv.Load()
 		w.Header().Set("Content-Type", "application/json")
@@ -426,15 +483,5 @@ func configHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func restartHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "method not allowed", 405)
-		return
-	}
-	w.WriteHeader(200)
-	w.Write([]byte(`{"status":"restarting"}`))
-	// Signal main goroutine to restart
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		os.Exit(0)
-	}()
+	http.Error(w, "not found", 404)
 }

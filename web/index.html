@@ -23,12 +23,14 @@
         .status.error { background: #f8d7da; color: #721c24; }
         .status.loading { background: #cce5ff; color: #004085; }
         .info { margin-top: 20px; padding: 16px; background: #f8f9fa; border-radius: 6px; font-size: 13px; color: #666; }
+        .auth-info { margin-bottom: 16px; padding: 12px; background: #fff3cd; border-radius: 6px; font-size: 13px; color: #856404; }
         .info code { background: #e9ecef; padding: 2px 6px; border-radius: 4px; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>ant2oa 配置</h1>
+        <div class="auth-info">访问此页面需要 Basic 认证。默认密码：admin（可通过 ADMIN_PASSWORD 环境变量修改）</div>
         <form id="configForm">
             <div class="form-group">
                 <label>监听地址</label>
@@ -48,7 +50,6 @@
             </div>
             <div style="margin-top: 20px;">
                 <button type="submit" class="btn btn-primary">保存配置</button>
-                <button type="button" class="btn btn-success" onclick="restart()">重启服务</button>
             </div>
         </form>
         <div id="status" class="status"></div>
@@ -57,6 +58,7 @@
             <p>配置会保存到 <code>.env</code> 文件。</p>
             <p>服务会在指定端口启动 API 代理。</p>
             <p>API 端点: <code>/v1/messages</code>, <code>/v1/complete</code>, <code>/v1/models</code></p>
+            <p>配置页面路径: <code>/config</code></p>
         </div>
     </div>
     <script>
@@ -114,20 +116,6 @@
             }
         });
 
-        // 重启服务
-        async function restart() {
-            showStatus('重启服务中...', 'loading');
-            try {
-                const res = await fetch('/api/restart', { method: 'POST' });
-                if (res.ok) {
-                    showStatus('服务重启中，请稍后刷新页面...', 'success');
-                } else {
-                    showStatus('重启失败', 'error');
-                }
-            } catch (e) {
-                showStatus('重启失败: ' + e.message, 'error');
-            }
-        }
     </script>
 </body>
 </html>

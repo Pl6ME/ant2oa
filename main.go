@@ -4,7 +4,6 @@ import (
 	"context"
 	"embed"
 	"flag"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -92,24 +91,10 @@ func main() {
 	mux.HandleFunc("/health", healthHandler())
 
 	// Web UI routes
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" {
-			f, err := webFS.Open("web/index.html")
-			if err != nil {
-				http.Error(w, "Web UI not found", 404)
-				return
-			}
-			defer f.Close()
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			io.Copy(w, f)
-			return
-		}
-		http.NotFound(w, r)
-	})
+	mux.HandleFunc("/config", configWebHandler)
 
 	// Config API
 	mux.HandleFunc("/api/config", configHandler)
-	mux.HandleFunc("/api/restart", restartHandler)
 
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
