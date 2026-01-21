@@ -302,9 +302,15 @@ func completeHandler(base, model string) http.HandlerFunc {
 			return
 		}
 
+		// Target Model - support model override from request
+		targetModel := model
+		if req.Model != "" {
+			targetModel = req.Model
+		}
+
 		// Simple mapping
 		oaReqMap := map[string]any{
-			"model": model,
+			"model": targetModel,
 			"messages": []map[string]any{
 				{"role": "user", "content": req.Prompt},
 			},

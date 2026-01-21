@@ -225,7 +225,7 @@ curl -u :admin -X POST http://localhost:8080/api/config \
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `OPENAI_BASE_URL` | ✅ | - | Base URL of OpenAI-compatible service |
-| `OPENAI_MODEL` | ✅ | - | Name of the model to use |
+| `OPENAI_MODEL` | ❌ | - | Default model name (used when no model is specified in request) |
 | `LISTEN_ADDR` | ❌ | `:8080` | Service listening address and port |
 | `RATE_LIMIT` | ❌ | Unlimited | Requests per minute limit (0 means unlimited) |
 | `ADMIN_PASSWORD` | ❌ | `admin` | Password for config page access |
@@ -235,20 +235,20 @@ curl -u :admin -X POST http://localhost:8080/api/config \
 #### DeepSeek Configuration
 ```bash
 OPENAI_BASE_URL=https://api.deepseek.com/v1
-OPENAI_MODEL=deepseek-chat
+OPENAI_MODEL=deepseek-chat  # Optional: used as default model
 ```
 
 #### Ollama Local Configuration
 ```bash
 OPENAI_BASE_URL=http://localhost:11434/v1
-OPENAI_MODEL=llama3.1:8b
+OPENAI_MODEL=llama3.1:8b  # Optional: used as default model
 LISTEN_ADDR=:8080
 ```
 
 #### vLLM Configuration
 ```bash
 OPENAI_BASE_URL=http://your-vllm-server:8000/v1
-OPENAI_MODEL=your-model-name
+OPENAI_MODEL=your-model-name  # Optional: used as default model
 ```
 
 ## 📡 API Endpoints

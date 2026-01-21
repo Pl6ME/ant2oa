@@ -49,6 +49,7 @@ type AnthropicMessagesReq struct {
 // ================= Anthropic Old (/v1/complete) =================
 
 type AnthropicCompleteReq struct {
+	Model       string  `json:"model,omitempty"`
 	Prompt      string  `json:"prompt"`
 	MaxTokens   int     `json:"max_tokens_to_sample"`
 	Temperature float64 `json:"temperature,omitempty"`
