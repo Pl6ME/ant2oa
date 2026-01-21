@@ -40,7 +40,7 @@ git clone https://github.com/Pl6ME/ant2oa.git
 cd ant2oa
 
 # Run the service
-go run .
+go run . -log=server.log
 ```
 
 2. **Configure Environment Variables**
@@ -53,8 +53,9 @@ OPENAI_BASE_URL=https://api.deepseek.com/v1
 OPENAI_MODEL=deepseek-chat
 
 # Optional Configuration
+OPENAI_API_KEY=your-api-key-here  # If set, ignores client keys
 LISTEN_ADDR=:8080
-RATE_LIMIT=100
+RATE_LIMIT=100  # 0 or unset means unlimited
 ```
 
 3. **Test the Service**
@@ -70,6 +71,9 @@ curl http://localhost:8080/health
 ```bash
 # Build
 go build -o ant2oa .
+
+# Run with logging
+./ant2oa -log=app.log
 
 # Or use cross-compilation for different platforms
 GOOS=linux GOARCH=amd64 go build -o ant2oa-linux-amd64 .

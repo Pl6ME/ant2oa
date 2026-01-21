@@ -4,12 +4,14 @@ import (
 	"context"
 	"embed"
 	"flag"
+	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -19,17 +21,77 @@ import (
 //go:embed web
 var webFS embed.FS
 
+// Global Configuration with Thread Safety
+type ServerConfig struct {
+	sync.RWMutex
+	BaseURL   string
+	Model     string
+	RateLimit int // RPM, 0 = unlimited
+	APIKey    string
+}
+
+var (
+	config  ServerConfig
+	limiter chan struct{} // Global limiter channel
+)
+
+// Update global config and reset rate limiter if needed
+func updateConfig(newBase, newModel, newKey string, newRate int) {
+	config.Lock()
+	defer config.Unlock()
+
+	config.BaseURL = newBase
+	config.Model = newModel
+	config.APIKey = newKey
+
+	// Reset rate limiter if changed
+	if newRate != config.RateLimit {
+		config.RateLimit = newRate
+		setupRateLimiter(newRate)
+	}
+}
+
+func setupRateLimiter(rpm int) {
+	if rpm <= 0 {
+		limiter = nil
+		log.Println("Rate Limit: Unlimited")
+		return
+	}
+
+	burst := 5
+	if rpm < 5 {
+		burst = rpm
+	}
+	limiter = make(chan struct{}, burst)
+
+	// Initial fill
+	for i := 0; i < burst; i++ {
+		limiter <- struct{}{}
+	}
+
+	interval := time.Minute / time.Duration(rpm)
+	go func(ch chan struct{}) {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			// Non-blocking send
+			select {
+			case ch <- struct{}{}:
+			default:
+			}
+		}
+	}(limiter)
+	log.Printf("Rate Limit: %d RPM", rpm)
+}
+
 func init() {
-	// 在此处设置日志前缀以便调试
-	log.SetPrefix("[ant2oa] ")
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 }
 
 func main() {
-	// Attempt to load .env file
-	_ = godotenv.Load()
-
+	// 1. Parse Flags
 	installFlag := flag.Bool("install", false, "Install as systemd service (Linux only)")
+	logPath := flag.String("log", "", "Log file path (default: stdout)")
 	flag.Parse()
 
 	if *installFlag {
@@ -37,77 +99,79 @@ func main() {
 		return
 	}
 
-	// ================= Rate Limiter Setup =================
-	rpmStr := os.Getenv("RATE_LIMIT")
-	if rpmStr != "" {
-		rpm, err := strconv.Atoi(rpmStr)
-		if err == nil && rpm > 0 {
-			rateLimitEnabled = true
-			burst := 5 // Default burst
-			if rpm < 5 {
-				burst = rpm
-			}
-			limiter = make(chan struct{}, burst)
-
-			// Initial fill
-			for i := 0; i < burst; i++ {
-				limiter <- struct{}{}
-			}
-
-			interval := time.Minute / time.Duration(rpm)
-			go func() {
-				ticker := time.NewTicker(interval)
-				defer ticker.Stop()
-				for range ticker.C {
-					select {
-					case limiter <- struct{}{}:
-					default:
-					}
-				}
-			}()
-			log.Printf("Rate Limit Enabled: %d RPM", rpm)
-		} else {
-			log.Printf("Warning: Invalid RATE_LIMIT '%s' (expected >0 int). Rate limiting disabled.", rpmStr)
+	// 2. Setup Logging
+	if *logPath != "" {
+		f, err := os.OpenFile(*logPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		if err != nil {
+			log.Fatalf("Error opening log file: %v", err)
 		}
-	} else {
-		log.Println("Rate Limit: Unlimited (set RATE_LIMIT env var to enable)")
+		defer f.Close()
+		log.SetOutput(io.MultiWriter(os.Stdout, f)) // Write to both for visibility
+		log.Printf("Logging to %s", *logPath)
 	}
 
-	// ================= Server Setup =================
+	// 3. Load Environment
+	_ = godotenv.Load()
+
+	// 4. Initialize Config
+	// NOTE: We do not init 'limiter' here directly, updateConfig does it.
+	// But we need to load initial values.
+
+	// Helper to parse int env
+	parseEnvInt := func(key string) int {
+
+		// using naive approach
+		var val int
+		fmt.Sscanf(os.Getenv(key), "%d", &val)
+		return val
+	}
+
+	initialRPM := parseEnvInt("RATE_LIMIT")
+
+	// Set initial state
+	updateConfig(
+		os.Getenv("OPENAI_BASE_URL"),
+		os.Getenv("OPENAI_MODEL"),
+		os.Getenv("OPENAI_API_KEY"),
+		initialRPM,
+	)
+
+	// Validation
+	config.RLock()
+	if config.BaseURL == "" {
+		log.Fatal("OPENAI_BASE_URL environment variable is required")
+	}
+	config.RUnlock()
+
+	// 5. Server Setup
 	listen := os.Getenv("LISTEN_ADDR")
 	if listen == "" {
 		listen = ":8080"
 	}
 
-	base := os.Getenv("OPENAI_BASE_URL")
-	if base == "" {
-		log.Fatal("OPENAI_BASE_URL environment variable is required")
-	}
-	model := os.Getenv("OPENAI_MODEL")
-
 	mux := http.NewServeMux()
 
 	// API routes
-	mux.HandleFunc("/v1/messages", messagesHandler(base, model))
-	mux.HandleFunc("/v1/complete", completeHandler(base, model))
-	mux.HandleFunc("/v1/models", modelsHandler(base))
+	mux.HandleFunc("/v1/messages", messagesHandler)
+	mux.HandleFunc("/v1/complete", completeHandler)
+	mux.HandleFunc("/v1/models", modelsHandler)
 	mux.HandleFunc("/health", healthHandler())
 
-	// Web UI routes
+	// Configuration & Testing
+	mux.HandleFunc("/api/config", configHandler)
+	mux.HandleFunc("/api/test", testConnectionHandler)
+
+	// Web UI
 	mux.HandleFunc("/config", configWebHandler)
 
-	// Config API
-	mux.HandleFunc("/api/config", configHandler)
-
+	srv := &http.Server{Handler: mux}
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 	log.Println("Listening on", ln.Addr())
 
-	srv := &http.Server{Handler: mux}
-
-	// Run Server in Goroutine
+	// Run Server
 	go func() {
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server Listen Error: %s", err)
@@ -120,14 +184,11 @@ func main() {
 	<-quit
 	log.Println("Shutting down server...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // 10s grace period
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Printf("Server forced to shutdown: %v", err)
-	} else {
-		log.Println("Server shutdown gracefully")
 	}
-
 	log.Println("Server exited cleanly")
 }

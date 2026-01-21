@@ -40,7 +40,7 @@ git clone <your-repo-url>
 cd ant2oa
 
 # 运行服务
-go run .
+go run . -log=server.log
 ```
 
 2. **配置环境变量**
@@ -53,8 +53,9 @@ OPENAI_BASE_URL=https://api.deepseek.com/v1
 OPENAI_MODEL=deepseek-chat
 
 # 可选配置
+OPENAI_API_KEY=your-api-key-here # 如果设置，将忽略客户端传入的 Key
 LISTEN_ADDR=:8080
-RATE_LIMIT=100
+RATE_LIMIT=100  # 0 或不设置表示无限制
 ```
 
 3. **测试服务**
@@ -70,6 +71,9 @@ curl http://localhost:8080/health
 ```bash
 # 构建
 go build -o ant2oa .
+
+# 运行并记录日志
+./ant2oa -log=app.log
 
 # 或使用交叉编译构建不同平台版本
 GOOS=linux GOARCH=amd64 go build -o ant2oa-linux-amd64 .

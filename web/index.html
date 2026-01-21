@@ -45,20 +45,25 @@
                 <input type="text" id="model" placeholder="gpt-4" required>
             </div>
             <div class="form-group">
+                <label>服务端 API Key (可选)</label>
+                <input type="password" id="apiKey" placeholder="sk-..." autocomplete="off">
+                <div style="font-size: 12px; color: #888; margin-top: 4px;">设置后将忽略客户端传入的 Key</div>
+            </div>
+            <div class="form-group">
                 <label>速率限制 (RPM, 可选)</label>
                 <input type="number" id="rateLimit" placeholder="不限制">
             </div>
             <div style="margin-top: 20px;">
                 <button type="submit" class="btn btn-primary">保存配置</button>
+                <button type="button" id="testBtn" class="btn btn-success">测试连接</button>
             </div>
         </form>
         <div id="status" class="status"></div>
         <div class="info">
             <strong>说明：</strong>
-            <p>配置会保存到 <code>.env</code> 文件。</p>
+            <p>配置会保存到 <code>.env</code> 文件并立即生效（无需重启）。</p>
             <p>服务会在指定端口启动 API 代理。</p>
             <p>API 端点: <code>/v1/messages</code>, <code>/v1/complete</code>, <code>/v1/models</code></p>
-            <p>配置页面路径: <code>/config</code></p>
         </div>
     </div>
     <script>
@@ -80,12 +85,30 @@
                     document.getElementById('baseUrl').value = data.baseUrl || '';
                     document.getElementById('model').value = data.model || '';
                     document.getElementById('rateLimit').value = data.rateLimit || '';
+                    document.getElementById('apiKey').value = data.apiKey || '';
                 }
             } catch (e) {
                 console.log('获取配置失败:', e);
             }
         }
         loadConfig();
+
+        // 测试连接
+        document.getElementById('testBtn').addEventListener('click', async () => {
+             hideStatus();
+             showStatus('测试中...', 'loading');
+             try {
+                 const res = await fetch('/api/test');
+                 const data = await res.json();
+                 if (res.ok && data.ok) {
+                     showStatus('连接成功! ' + (data.message || ''), 'success');
+                 } else {
+                     showStatus('连接失败: ' + (data.error || '未知错误'), 'error');
+                 }
+             } catch (e) {
+                 showStatus('请求失败: ' + e.message, 'error');
+             }
+        });
 
         // 保存配置
         document.getElementById('configForm').addEventListener('submit', async (e) => {
@@ -97,7 +120,8 @@
                 listenAddr: document.getElementById('listenAddr').value || ':8080',
                 baseUrl: document.getElementById('baseUrl').value,
                 model: document.getElementById('model').value,
-                rateLimit: document.getElementById('rateLimit').value
+                rateLimit: document.getElementById('rateLimit').value,
+                apiKey: document.getElementById('apiKey').value
             };
 
             try {
@@ -107,7 +131,7 @@
                     body: JSON.stringify(data)
                 });
                 if (res.ok) {
-                    showStatus('配置已保存', 'success');
+                    showStatus('配置已保存并生效', 'success');
                 } else {
                     showStatus('保存失败', 'error');
                 }

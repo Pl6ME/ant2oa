@@ -26,13 +26,19 @@ var (
 	}
 
 	// Rate Limiting
-	limiter          chan struct{}
-	rateLimitEnabled bool
+	// limiter and rateLimitEnabled handled in main.go / global config
 )
 
-func forwardOAMap(w http.ResponseWriter, r *http.Request, base, auth string, oaReqMap map[string]any, stream bool) {
+func forwardOAMap(w http.ResponseWriter, r *http.Request, oaReqMap map[string]any, stream bool) {
+	// Read Config Snapshot
+	config.RLock()
+	base := config.BaseURL
+	serverKey := config.APIKey
+	// Rate Limit Check done below
+	config.RUnlock()
+
 	// Rate Limit Check
-	if rateLimitEnabled && limiter != nil {
+	if limiter != nil {
 		select {
 		case <-limiter:
 			// Go ahead
@@ -71,7 +77,18 @@ func forwardOAMap(w http.ResponseWriter, r *http.Request, base, auth string, oaR
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		or.Header.Set("Authorization", auth)
+
+		// Use Server Key if set, otherwise use Client Auth
+		finalAuth := r.Header.Get("Authorization")
+		if serverKey != "" {
+			if !strings.HasPrefix(serverKey, "Bearer ") {
+				finalAuth = "Bearer " + serverKey
+			} else {
+				finalAuth = serverKey
+			}
+		}
+
+		or.Header.Set("Authorization", finalAuth)
 		or.Header.Set("Content-Type", "application/json")
 
 		resp, err = HttpClient.Do(or)
