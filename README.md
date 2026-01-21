@@ -187,21 +187,30 @@ docker-compose up -d
 
 ### Web UI Configuration
 
-Access the web configuration interface by opening `http://localhost:8080` in your browser. The web UI allows you to:
+Access the web configuration interface at `http://localhost:8080/config` in your browser.
+**Requires Basic Authentication** - default password is `admin` (can be changed via `ADMIN_PASSWORD` environment variable).
 
+The web UI allows you to:
 - Configure service settings through a simple form
 - Set listen address, OpenAI service URL, model name, and rate limit
-- Restart the service with one click
 - Configuration is automatically saved to `.env` file
+
+```bash
+# Access config page with authentication (browser will prompt)
+http://localhost:8080/config
+
+# Or use curl with basic auth
+curl -u :admin http://localhost:8080/api/config
+```
 
 ### Configuration API
 
 ```bash
-# Get current configuration
-curl http://localhost:8080/api/config
+# Get current configuration (requires auth)
+curl -u :admin http://localhost:8080/api/config
 
 # Update configuration
-curl -X POST http://localhost:8080/api/config \
+curl -u :admin -X POST http://localhost:8080/api/config \
   -H "Content-Type: application/json" \
   -d '{
     "listenAddr": ":8080",
@@ -209,9 +218,6 @@ curl -X POST http://localhost:8080/api/config \
     "model": "deepseek-chat",
     "rateLimit": "100"
   }'
-
-# Restart service
-curl -X POST http://localhost:8080/api/restart
 ```
 
 ### Environment Variables
@@ -222,6 +228,7 @@ curl -X POST http://localhost:8080/api/restart
 | `OPENAI_MODEL` | ✅ | - | Name of the model to use |
 | `LISTEN_ADDR` | ❌ | `:8080` | Service listening address and port |
 | `RATE_LIMIT` | ❌ | Unlimited | Requests per minute limit (0 means unlimited) |
+| `ADMIN_PASSWORD` | ❌ | `admin` | Password for config page access |
 
 ### Common Configuration Examples
 
