@@ -225,7 +225,7 @@ curl -u :admin -X POST http://localhost:8080/api/config \
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `OPENAI_BASE_URL` | ✅ | - | Base URL of OpenAI-compatible service |
-| `OPENAI_MODEL` | ❌ | - | Default model name (used when no model is specified in request) |
+| `OPENAI_MODEL` | ❌ | - | Default model name (used when no model is specified in request). The `model` parameter in API requests is passed through directly to the upstream service. |
 | `LISTEN_ADDR` | ❌ | `:8080` | Service listening address and port |
 | `RATE_LIMIT` | ❌ | Unlimited | Requests per minute limit (0 means unlimited) |
 | `ADMIN_PASSWORD` | ❌ | `admin` | Password for config page access |

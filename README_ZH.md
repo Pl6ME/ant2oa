@@ -225,7 +225,7 @@ curl -u :admin -X POST http://localhost:8080/api/config \
 | 变量名 | 必需 | 默认值 | 说明 |
 |--------|------|--------|------|
 | `OPENAI_BASE_URL` | ✅ | - | OpenAI 兼容服务的基础 URL |
-| `OPENAI_MODEL` | ❌ | - | 默认模型名称（请求中未指定模型时使用） |
+| `OPENAI_MODEL` | ❌ | - | 默认模型名称（请求中未指定模型时使用）。API 请求中的 `model` 参数会透传给上游服务。 |
 | `LISTEN_ADDR` | ❌ | `:8080` | 服务监听地址和端口 |
 | `RATE_LIMIT` | ❌ | 无限制 | 每分钟请求数限制（0 表示无限制） |
 | `ADMIN_PASSWORD` | ❌ | `admin` | 配置页面访问密码 |
