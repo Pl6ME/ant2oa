@@ -80,6 +80,9 @@ func main() {
 	}
 
 	base := os.Getenv("OPENAI_BASE_URL")
+	if base == "" {
+		log.Fatal("OPENAI_BASE_URL environment variable is required")
+	}
 	model := os.Getenv("OPENAI_MODEL")
 
 	mux := http.NewServeMux()
