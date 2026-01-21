@@ -185,6 +185,41 @@ docker-compose up -d
 
 ## 🔧 配置说明
 
+### Web UI 配置
+
+在浏览器中打开 `http://localhost:8080/config` 访问 Web 配置界面。
+**需要身份验证** - 默认密码为 `admin`（可通过 `ADMIN_PASSWORD` 环境变量修改）。
+
+Web UI 允许您：
+- 通过简单表单配置服务设置
+- 设置监听地址、OpenAI 服务 URL、模型名称和速率限制
+- 配置自动保存到 `.env` 文件
+
+```bash
+# 访问配置页面（浏览器会提示输入密码）
+http://localhost:8080/config
+
+# 或使用 curl 进行配置操作（需要认证）
+curl -u :admin http://localhost:8080/api/config
+```
+
+### 配置 API
+
+```bash
+# 获取当前配置（需要认证）
+curl -u :admin http://localhost:8080/api/config
+
+# 更新配置
+curl -u :admin -X POST http://localhost:8080/api/config \
+  -H "Content-Type: application/json" \
+  -d '{
+    "listenAddr": ":8080",
+    "baseUrl": "https://api.deepseek.com/v1",
+    "model": "deepseek-chat",
+    "rateLimit": "100"
+  }'
+```
+
 ### 环境变量
 
 | 变量名 | 必需 | 默认值 | 说明 |
@@ -193,6 +228,7 @@ docker-compose up -d
 | `OPENAI_MODEL` | ✅ | - | 要使用的模型名称 |
 | `LISTEN_ADDR` | ❌ | `:8080` | 服务监听地址和端口 |
 | `RATE_LIMIT` | ❌ | 无限制 | 每分钟请求数限制（0 表示无限制） |
+| `ADMIN_PASSWORD` | ❌ | `admin` | 配置页面访问密码 |
 
 ### 常用配置示例
 
@@ -219,6 +255,8 @@ OPENAI_MODEL=your-model-name
 
 服务提供以下 API 端点：
 
+- `GET /config` - Web 配置界面（需要管理员认证）
+- `GET/POST /api/config` - 配置管理 API（需要管理员认证）
 - `POST /v1/messages` - 发送消息（主要端点）
 - `POST /v1/complete` - 文本补全
 - `GET /v1/models` - 获取可用模型列表

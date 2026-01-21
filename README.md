@@ -255,9 +255,8 @@ OPENAI_MODEL=your-model-name
 
 The service provides the following API endpoints:
 
-- `GET /` - Web configuration UI
-- `GET/POST /api/config` - Configuration management API
-- `POST /api/restart` - Restart service via API
+- `GET /config` - Web configuration UI (requires admin auth)
+- `GET/POST /api/config` - Configuration management API (requires admin auth)
 - `POST /v1/messages` - Send messages (main endpoint)
 - `POST /v1/complete` - Text completion
 - `GET /v1/models` - Get available models list
