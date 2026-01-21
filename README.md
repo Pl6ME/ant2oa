@@ -185,6 +185,35 @@ docker-compose up -d
 
 ## 🔧 Configuration
 
+### Web UI Configuration
+
+Access the web configuration interface by opening `http://localhost:8080` in your browser. The web UI allows you to:
+
+- Configure service settings through a simple form
+- Set listen address, OpenAI service URL, model name, and rate limit
+- Restart the service with one click
+- Configuration is automatically saved to `.env` file
+
+### Configuration API
+
+```bash
+# Get current configuration
+curl http://localhost:8080/api/config
+
+# Update configuration
+curl -X POST http://localhost:8080/api/config \
+  -H "Content-Type: application/json" \
+  -d '{
+    "listenAddr": ":8080",
+    "baseUrl": "https://api.deepseek.com/v1",
+    "model": "deepseek-chat",
+    "rateLimit": "100"
+  }'
+
+# Restart service
+curl -X POST http://localhost:8080/api/restart
+```
+
 ### Environment Variables
 
 | Variable | Required | Default | Description |
@@ -219,6 +248,9 @@ OPENAI_MODEL=your-model-name
 
 The service provides the following API endpoints:
 
+- `GET /` - Web configuration UI
+- `GET/POST /api/config` - Configuration management API
+- `POST /api/restart` - Restart service via API
 - `POST /v1/messages` - Send messages (main endpoint)
 - `POST /v1/complete` - Text completion
 - `GET /v1/models` - Get available models list

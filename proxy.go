@@ -14,8 +14,6 @@ import (
 
 // ================= Core Forward + Streaming FSM =================
 
-// ================= Core Forward + Streaming FSM =================
-
 var (
 	// Connection Pooling & Timeout
 	HttpClient = &http.Client{
@@ -115,7 +113,9 @@ func forwardOAMap(w http.ResponseWriter, r *http.Request, base, auth string, oaR
 			w.Header().Set("Content-Type", "application/json")
 		}
 		w.WriteHeader(resp.StatusCode)
-		w.Write(rb)
+		if _, err := w.Write(rb); err != nil {
+			log.Printf("Error writing error response: %v", err)
+		}
 		return
 	}
 

@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"embed"
 	"flag"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -14,6 +16,9 @@ import (
 
 	"github.com/joho/godotenv"
 )
+
+//go:embed web
+var webFS embed.FS
 
 func init() {
 	// 在此处设置日志前缀以便调试
@@ -72,20 +77,39 @@ func main() {
 	// ================= Server Setup =================
 	listen := os.Getenv("LISTEN_ADDR")
 	if listen == "" {
-		listen = ":0"
+		listen = ":8080"
 	}
 
 	base := os.Getenv("OPENAI_BASE_URL")
 	model := os.Getenv("OPENAI_MODEL")
-	if base == "" || model == "" {
-		log.Fatalf("Required environment variables missing - OPENAI_BASE_URL: %q, OPENAI_MODEL: %q", base, model)
-	}
 
 	mux := http.NewServeMux()
+
+	// API routes
 	mux.HandleFunc("/v1/messages", messagesHandler(base, model))
 	mux.HandleFunc("/v1/complete", completeHandler(base, model))
 	mux.HandleFunc("/v1/models", modelsHandler(base))
 	mux.HandleFunc("/health", healthHandler())
+
+	// Web UI routes
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			f, err := webFS.Open("web/index.html")
+			if err != nil {
+				http.Error(w, "Web UI not found", 404)
+				return
+			}
+			defer f.Close()
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			io.Copy(w, f)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	// Config API
+	mux.HandleFunc("/api/config", configHandler)
+	mux.HandleFunc("/api/restart", restartHandler)
 
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
