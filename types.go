@@ -15,10 +15,19 @@ type AnthropicContent struct {
 	Name  string          `json:"name,omitempty"`
 	Input json.RawMessage `json:"input,omitempty"`
 
+	// Type: image
+	Source *AnthropicImageSource `json:"source,omitempty"`
+
 	// Type: tool_result
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	Content   json.RawMessage `json:"content,omitempty"` // string or []Content
 	IsError   bool            `json:"is_error,omitempty"`
+}
+
+type AnthropicImageSource struct {
+	Type      string `json:"type"`       // "base64"
+	MediaType string `json:"media_type"` // "image/jpeg", "image/png", etc.
+	Data      string `json:"data"`       // base64
 }
 
 type AnthropicTool struct {
@@ -70,10 +79,20 @@ type OAChatReq struct {
 
 type OAMessage struct {
 	Role       string       `json:"role"`
-	Content    string       `json:"content,omitempty"`
+	Content    any          `json:"content,omitempty"` // string or []OAContentPart
 	ToolCalls  []OAToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string       `json:"tool_call_id,omitempty"` // For role: tool
 	Name       string       `json:"name,omitempty"`
+}
+
+type OAContentPart struct {
+	Type     string      `json:"type"` // "text", "image_url"
+	Text     string      `json:"text,omitempty"`
+	ImageURL *OAImageURL `json:"image_url,omitempty"`
+}
+
+type OAImageURL struct {
+	URL string `json:"url"` // data:image/jpeg;base64,...
 }
 
 type OATool struct {
@@ -105,6 +124,10 @@ type OAStreamChunk struct {
 			ToolCalls        []OAToolCall `json:"tool_calls,omitempty"`
 		} `json:"delta"`
 	} `json:"choices"`
+	Usage *struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+	} `json:"usage,omitempty"`
 }
 
 // Anthropic Models API
@@ -137,6 +160,7 @@ type OAChatResp struct {
 		Message struct {
 			Content          string       `json:"content"`
 			ReasoningContent string       `json:"reasoning_content"`
+			Reasoning        string       `json:"reasoning"` // 兼容性
 			ToolCalls        []OAToolCall `json:"tool_calls,omitempty"`
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`

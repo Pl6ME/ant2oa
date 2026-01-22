@@ -175,29 +175,47 @@ func buildOpenAIMessages(req AnthropicMessagesReq) []map[string]any {
 	for _, m := range req.Messages {
 		var parts []AnthropicContent
 		if err := json.Unmarshal(m.Content, &parts); err != nil {
-			// treat as string
 			var s string
 			if err = json.Unmarshal(m.Content, &s); err != nil {
-				// If both unmarshals fail, use empty string
 				s = ""
 			}
 			parts = []AnthropicContent{{Type: "text", Text: s}}
 		}
 
-		switch m.Role {
-		case "user":
+		role := m.Role
+		if role == "" {
+			role = "user"
+		}
+
+		switch role {
+		case "system":
 			txt := ""
 			for _, p := range parts {
 				if p.Type == "text" {
 					txt += p.Text
 				}
 			}
-			if txt != "" || len(parts) == 0 {
-				messages = append(messages, map[string]any{"role": "user", "content": txt})
+			if txt != "" {
+				messages = append(messages, map[string]any{"role": "system", "content": txt})
 			}
-
+		case "user":
+			var oaParts []OAContentPart
 			for _, p := range parts {
-				if p.Type == "tool_result" {
+				switch p.Type {
+				case "text":
+					if p.Text != "" {
+						oaParts = append(oaParts, OAContentPart{Type: "text", Text: p.Text})
+					}
+				case "image":
+					if p.Source != nil && p.Source.Type == "base64" {
+						oaParts = append(oaParts, OAContentPart{
+							Type: "image_url",
+							ImageURL: &OAImageURL{
+								URL: "data:" + p.Source.MediaType + ";base64," + p.Source.Data,
+							},
+						})
+					}
+				case "tool_result":
 					contentStr := ""
 					if len(p.Content) > 0 {
 						var s string
@@ -214,6 +232,18 @@ func buildOpenAIMessages(req AnthropicMessagesReq) []map[string]any {
 					})
 				}
 			}
+
+			if len(oaParts) > 0 {
+				if len(oaParts) == 1 && oaParts[0].Type == "text" {
+					messages = append(messages, map[string]any{"role": "user", "content": oaParts[0].Text})
+				} else {
+					messages = append(messages, map[string]any{"role": "user", "content": oaParts})
+				}
+			} else if len(parts) == 0 {
+				// Keep empty message if it was empty
+				messages = append(messages, map[string]any{"role": "user", "content": ""})
+			}
+
 		case "assistant":
 			txt := ""
 			var toolCalls []map[string]any
@@ -241,6 +271,14 @@ func buildOpenAIMessages(req AnthropicMessagesReq) []map[string]any {
 				msg["tool_calls"] = toolCalls
 			}
 			messages = append(messages, msg)
+		default:
+			txt := ""
+			for _, p := range parts {
+				if p.Type == "text" {
+					txt += p.Text
+				}
+			}
+			messages = append(messages, map[string]any{"role": role, "content": txt})
 		}
 	}
 

@@ -76,7 +76,7 @@ func forwardOAMap(w http.ResponseWriter, r *http.Request, base, auth string, oaR
 
 		resp, err = HttpClient.Do(or)
 		if err != nil {
-			log.Printf("Upstream Request Error: %v", err)
+			log.Printf("Upstream Request Error (Auth: %s): %v", MaskKey(auth), err)
 			http.Error(w, err.Error(), 502)
 			return
 		}
@@ -195,6 +195,7 @@ func forwardOAMap(w http.ResponseWriter, r *http.Request, base, auth string, oaR
 	reader := bufio.NewReader(resp.Body)
 
 	startedMessage := false
+	lastUsage := map[string]int{"input": 0, "output": 0}
 
 	// FSM State
 	currentBlockType := "" // "thinking", "text", "tool_use"
@@ -255,19 +256,35 @@ func forwardOAMap(w http.ResponseWriter, r *http.Request, base, auth string, oaR
 		data := strings.TrimPrefix(line, "data: ")
 		if data == "[DONE]" {
 			closeBlock()
-			w.Write([]byte("event: message_delta\ndata: {\"type\": \"message_delta\", \"delta\": {\"stop_reason\": \"end_turn\", \"stop_sequence\": null}, \"usage\": {\"output_tokens\": 0}}\n\n"))
+			usageJson, _ := json.Marshal(map[string]any{
+				"output_tokens": lastUsage["output"],
+			})
+			w.Write([]byte("event: message_delta\ndata: {\"type\": \"message_delta\", \"delta\": {\"stop_reason\": \"end_turn\", \"stop_sequence\": null}, \"usage\": " + string(usageJson) + "}\n\n"))
 			w.Write([]byte("event: message_stop\ndata: {\"type\": \"message_stop\"}\n\n"))
 			flusher.Flush()
 			return
 		}
 
 		var chunk OAStreamChunk
-		if json.Unmarshal([]byte(data), &chunk) != nil || len(chunk.Choices) == 0 {
+		if json.Unmarshal([]byte(data), &chunk) != nil {
+			continue
+		}
+
+		if chunk.Usage != nil {
+			lastUsage["input"] = chunk.Usage.PromptTokens
+			lastUsage["output"] = chunk.Usage.CompletionTokens
+		}
+
+		if len(chunk.Choices) == 0 {
 			continue
 		}
 
 		if !startedMessage {
-			w.Write([]byte("event: message_start\ndata: {\"type\": \"message_start\", \"message\": {\"id\": \"msg_proxy\", \"type\": \"message\", \"role\": \"assistant\", \"content\": [], \"model\": \"proxy\", \"stop_reason\": null, \"stop_sequence\": null, \"usage\": {\"input_tokens\": 0, \"output_tokens\": 0}}}\n\n"))
+			usageJson, _ := json.Marshal(map[string]any{
+				"input_tokens":  lastUsage["input"],
+				"output_tokens": lastUsage["output"],
+			})
+			w.Write([]byte("event: message_start\ndata: {\"type\": \"message_start\", \"message\": {\"id\": \"msg_proxy\", \"type\": \"message\", \"role\": \"assistant\", \"content\": [], \"model\": \"proxy\", \"stop_reason\": null, \"stop_sequence\": null, \"usage\": " + string(usageJson) + "}}\n\n"))
 			startedMessage = true
 		}
 

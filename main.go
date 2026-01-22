@@ -39,6 +39,9 @@ func main() {
 
 	// ================= Rate Limiter Setup =================
 	rpmStr := os.Getenv("RATE_LIMIT")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // Catch-all for main exit
+
 	if rpmStr != "" {
 		rpm, err := strconv.Atoi(rpmStr)
 		if err == nil && rpm > 0 {
@@ -55,16 +58,21 @@ func main() {
 			}
 
 			interval := time.Minute / time.Duration(rpm)
-			go func() {
+			go func(ctx context.Context) {
 				ticker := time.NewTicker(interval)
 				defer ticker.Stop()
-				for range ticker.C {
+				for {
 					select {
-					case limiter <- struct{}{}:
-					default:
+					case <-ticker.C:
+						select {
+						case limiter <- struct{}{}:
+						default:
+						}
+					case <-ctx.Done():
+						return
 					}
 				}
-			}()
+			}(ctx)
 			log.Printf("Rate Limit Enabled: %d RPM", rpm)
 		} else {
 			log.Printf("Warning: Invalid RATE_LIMIT '%s' (expected >0 int). Rate limiting disabled.", rpmStr)
@@ -120,10 +128,10 @@ func main() {
 	<-quit
 	log.Println("Shutting down server...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // 10s grace period
-	defer cancel()
+	ctxGrace, cancelGrace := context.WithTimeout(context.Background(), 10*time.Second) // 10s grace period
+	defer cancelGrace()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(ctxGrace); err != nil {
 		log.Printf("Server forced to shutdown: %v", err)
 	} else {
 		log.Println("Server shutdown gracefully")

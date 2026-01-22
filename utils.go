@@ -54,3 +54,16 @@ func parseContentWithThinkTags(raw string) []map[string]any {
 	}
 	return blocks
 }
+
+func MaskKey(key string) string {
+	if len(key) <= 8 {
+		return "********"
+	}
+	if strings.HasPrefix(key, "sk-") {
+		if len(key) > 12 {
+			return key[:7] + "..." + key[len(key)-4:]
+		}
+	}
+	// For other generic keys
+	return key[:4] + "..." + key[len(key)-4:]
+}
