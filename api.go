@@ -249,6 +249,18 @@ func buildOpenAIMessages(req AnthropicMessagesReq) []map[string]any {
 				msg["tool_calls"] = toolCalls
 			}
 			messages = append(messages, msg)
+		default:
+			// Handle any other role (including system, tool, etc.)
+			txt := ""
+			for _, p := range parts {
+				if p.Type == "text" {
+					txt += p.Text
+				}
+			}
+			// Preserve unknown roles as-is
+			if txt != "" || len(parts) == 0 || m.Role == "system" {
+				messages = append(messages, map[string]any{"role": m.Role, "content": txt})
+			}
 		}
 	}
 

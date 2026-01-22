@@ -31,8 +31,10 @@ type ServerConfig struct {
 }
 
 var (
-	config  ServerConfig
-	limiter chan struct{} // Global limiter channel
+	config     ServerConfig
+	limiter    chan struct{} // Global limiter channel
+	limiterStop chan struct{} // Channel to stop the rate limiter goroutine
+	limiterMu  sync.RWMutex   // Protects limiter access
 )
 
 // Update global config and reset rate limiter if needed
@@ -52,8 +54,18 @@ func updateConfig(newBase, newModel, newKey string, newRate int) {
 }
 
 func setupRateLimiter(rpm int) {
+	limiterMu.Lock()
+	defer limiterMu.Unlock()
+
+	// Stop the old rate limiter goroutine if running
+	if limiterStop != nil {
+		close(limiterStop)
+		limiterStop = nil
+	}
+
 	if rpm <= 0 {
 		limiter = nil
+		limiterStop = nil
 		log.Println("Rate Limit: Unlimited")
 		return
 	}
@@ -69,18 +81,27 @@ func setupRateLimiter(rpm int) {
 		limiter <- struct{}{}
 	}
 
+	// Create stop channel for the new goroutine
+	limiterStop = make(chan struct{})
 	interval := time.Minute / time.Duration(rpm)
-	go func(ch chan struct{}) {
+
+	go func(ch chan struct{}, stopCh chan struct{}) {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		for range ticker.C {
-			// Non-blocking send
+		for {
 			select {
-			case ch <- struct{}{}:
-			default:
+			case <-ticker.C:
+				// Non-blocking send
+				select {
+				case ch <- struct{}{}:
+				default:
+				}
+			case <-stopCh:
+				return
 			}
 		}
-	}(limiter)
+	}(limiter, limiterStop)
+
 	log.Printf("Rate Limit: %d RPM", rpm)
 }
 
@@ -129,12 +150,17 @@ func main() {
 	initialRPM := parseEnvInt("RATE_LIMIT")
 
 	// Set initial state
+	apiKey := os.Getenv("OPENAI_API_KEY")
 	updateConfig(
 		os.Getenv("OPENAI_BASE_URL"),
 		os.Getenv("OPENAI_MODEL"),
-		os.Getenv("OPENAI_API_KEY"),
+		apiKey,
 		initialRPM,
 	)
+	// Log API key masked for security
+	if apiKey != "" {
+		log.Println("API Key: *****" + apiKey[len(apiKey)-4:])
+	}
 
 	// Validation
 	config.RLock()
