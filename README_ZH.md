@@ -361,6 +361,64 @@ ant2oa/
 - 📊 **健康检查**：内置健康监控端点
 - 🏗️ **跨平台支持**：支持 x86_64、ARM64 等多种架构
 
+## 🌐 Nginx 反向代理
+
+您可以将 ant2oa 部署在 Nginx 后面，以实现 SSL 终止、负载均衡等功能。
+
+### 基础配置
+
+创建 `/etc/nginx/sites-available/ant2oa`：
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    # 重定向到 HTTPS（如果使用 SSL）
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name your-domain.com;
+
+    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket 支持（如果需要）
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        # 流式响应超时设置
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}
+```
+
+### 启用站点：
+
+```bash
+sudo ln -s /etc/nginx/sites-available/ant2oa /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### 配置 SSL（Certbot）
+
+```bash
+sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d your-domain.com
+```
+
 ## 🤝 贡献
 
 欢迎提交 Issue 和 Pull Request！
