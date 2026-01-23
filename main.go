@@ -37,6 +37,14 @@ func main() {
 		return
 	}
 
+	// Load configurations
+	if err := loadAPIKeys(); err != nil {
+		log.Printf("Warning: Failed to load keys.json: %v", err)
+	}
+	if err := loadModelRoutes(); err != nil {
+		log.Printf("Warning: Failed to load routes.json: %v", err)
+	}
+
 	// ================= Rate Limiter Setup =================
 	rpmStr := os.Getenv("RATE_LIMIT")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -99,7 +107,11 @@ func main() {
 	mux.HandleFunc("/v1/messages", messagesHandler(base, model))
 	mux.HandleFunc("/v1/complete", completeHandler(base, model))
 	mux.HandleFunc("/v1/models", modelsHandler(base))
-	mux.HandleFunc("/health", healthHandler())
+	mux.HandleFunc("/health", enhancedHealthHandler(base))
+
+	// Metrics routes
+	mux.HandleFunc("/metrics", metricsHandler())
+	mux.HandleFunc("/metrics/json", metricsJSONHandler())
 
 	// Web UI routes
 	mux.HandleFunc("/config", configWebHandler)
@@ -107,13 +119,30 @@ func main() {
 	// Config API
 	mux.HandleFunc("/api/config", configHandler)
 
+	// Get max request size from env (default 10MB)
+	maxRequestSize := int64(10 * 1024 * 1024)
+	if maxSizeStr := os.Getenv("MAX_REQUEST_SIZE"); maxSizeStr != "" {
+		if size, err := strconv.ParseInt(maxSizeStr, 10, 64); err == nil && size > 0 {
+			maxRequestSize = size
+		}
+	}
+
+	// Apply middleware chain
+	handler := chainMiddleware(
+		mux,
+		loggingMiddleware,
+		corsMiddleware,
+		maxBytesMiddleware(maxRequestSize),
+	)
+
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 	log.Println("Listening on", ln.Addr())
+	log.Printf("Max request size: %d bytes", maxRequestSize)
 
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{Handler: handler}
 
 	// Run Server in Goroutine
 	go func() {

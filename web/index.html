@@ -11,64 +11,148 @@
         h1 { color: #333; margin-bottom: 24px; font-size: 24px; }
         .form-group { margin-bottom: 16px; }
         label { display: block; margin-bottom: 6px; color: #555; font-size: 14px; font-weight: 500; }
-        input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+        .label-hint { font-weight: normal; color: #888; font-size: 12px; margin-left: 4px; }
+        input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; transition: border-color 0.2s; }
         input:focus { outline: none; border-color: #007bff; }
-        .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-right: 8px; }
+        input.error { border-color: #dc3545; }
+        .error-msg { color: #dc3545; font-size: 12px; margin-top: 4px; display: none; }
+        .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-right: 8px; transition: background 0.2s; }
         .btn-primary { background: #007bff; color: #fff; }
         .btn-primary:hover { background: #0056b3; }
-        .btn-success { background: #28a745; color: #fff; }
-        .btn-success:hover { background: #1e7e34; }
+        .btn-primary:disabled { background: #ccc; cursor: not-allowed; }
         .status { margin-top: 16px; padding: 12px; border-radius: 6px; display: none; }
         .status.success { background: #d4edda; color: #155724; }
         .status.error { background: #f8d7da; color: #721c24; }
         .status.loading { background: #cce5ff; color: #004085; }
+        .status.warning { background: #fff3cd; color: #856404; }
         .info { margin-top: 20px; padding: 16px; background: #f8f9fa; border-radius: 6px; font-size: 13px; color: #666; }
         .auth-info { margin-bottom: 16px; padding: 12px; background: #fff3cd; border-radius: 6px; font-size: 13px; color: #856404; }
         .info code { background: #e9ecef; padding: 2px 6px; border-radius: 4px; }
+        .separator { border: none; border-top: 1px solid #eee; margin: 20px 0; }
+        .section-title { font-size: 16px; color: #333; margin-bottom: 16px; font-weight: 600; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>ant2oa 配置</h1>
         <div class="auth-info">访问此页面需要 Basic 认证。默认密码：admin（可通过 ADMIN_PASSWORD 环境变量修改）</div>
-        <form id="configForm">
+        <form id="configForm" novalidate>
+            <div class="section-title">服务器设置</div>
             <div class="form-group">
-                <label>监听地址</label>
-                <input type="text" id="listenAddr" placeholder=":8080" value=":8080">
+                <label>监听地址 <span class="label-hint">(例: :8080 或 0.0.0.0:8080)</span></label>
+                <input type="text" id="listenAddr" placeholder=":8080" value=":8080" pattern="^:?\d{1,5}$|^[\d\.]+:\d{1,5}$">
+                <div class="error-msg" id="listenAddrError">请输入有效的监听地址</div>
             </div>
             <div class="form-group">
-                <label>OpenAI 兼容服务地址</label>
-                <input type="text" id="baseUrl" placeholder="https://api.openai.com/v1" required>
+                <label>管理员密码 <span class="label-hint">(用于访问配置页面)</span></label>
+                <input type="password" id="adminPassword" placeholder="留空则不修改">
+                <div class="error-msg" id="adminPasswordError">密码长度至少4个字符</div>
+            </div>
+
+            <hr class="separator">
+            <div class="section-title">上游服务配置</div>
+            
+            <div class="form-group">
+                <label>OpenAI 兼容服务地址 <span class="label-hint">(必填)</span></label>
+                <input type="url" id="baseUrl" placeholder="https://api.openai.com/v1" required>
+                <div class="error-msg" id="baseUrlError">请输入有效的 URL 地址</div>
             </div>
             <div class="form-group">
-                <label>模型名称</label>
-                <input type="text" id="model" placeholder="gpt-4" required>
+                <label>默认模型名称 <span class="label-hint">(可选，请求可覆盖)</span></label>
+                <input type="text" id="model" placeholder="gpt-4">
+            </div>
+
+            <hr class="separator">
+            <div class="section-title">限制设置</div>
+
+            <div class="form-group">
+                <label>速率限制 <span class="label-hint">(RPM，留空不限制)</span></label>
+                <input type="number" id="rateLimit" placeholder="不限制" min="1" max="10000">
+                <div class="error-msg" id="rateLimitError">请输入1-10000之间的数字</div>
             </div>
             <div class="form-group">
-                <label>速率限制 (RPM, 可选)</label>
-                <input type="number" id="rateLimit" placeholder="不限制">
+                <label>最大请求大小 <span class="label-hint">(字节，默认10MB)</span></label>
+                <input type="number" id="maxRequestSize" placeholder="10485760" min="1048576" max="104857600">
+                <div class="error-msg" id="maxRequestSizeError">请输入1MB-100MB之间的字节数</div>
             </div>
+
             <div style="margin-top: 20px;">
-                <button type="submit" class="btn btn-primary">保存配置</button>
+                <button type="submit" class="btn btn-primary" id="submitBtn">保存配置</button>
             </div>
         </form>
         <div id="status" class="status"></div>
         <div class="info">
             <strong>说明：</strong>
-            <p>配置会保存到 <code>.env</code> 文件。</p>
-            <p>服务会在指定端口启动 API 代理。</p>
+            <p>配置会保存到 <code>.env</code> 文件。保存后需<strong>重启服务</strong>才能生效。</p>
             <p>API 端点: <code>/v1/messages</code>, <code>/v1/complete</code>, <code>/v1/models</code></p>
+            <p>监控端点: <code>/health</code>, <code>/metrics</code>, <code>/metrics/json</code></p>
             <p>配置页面路径: <code>/config</code></p>
         </div>
     </div>
     <script>
         const status = document.getElementById('status');
+        const form = document.getElementById('configForm');
+        const submitBtn = document.getElementById('submitBtn');
+
         function showStatus(msg, type) {
             status.textContent = msg;
             status.className = 'status ' + type;
             status.style.display = 'block';
         }
         function hideStatus() { status.style.display = 'none'; }
+
+        function validateField(id, validatorFn) {
+            const input = document.getElementById(id);
+            const error = document.getElementById(id + 'Error');
+            const isValid = validatorFn(input.value);
+            input.classList.toggle('error', !isValid);
+            if (error) error.style.display = isValid ? 'none' : 'block';
+            return isValid;
+        }
+
+        function isValidUrl(url) {
+            if (!url) return false;
+            try {
+                new URL(url);
+                return true;
+            } catch { return false; }
+        }
+
+        function validateForm() {
+            let valid = true;
+
+            // Base URL is required
+            if (!validateField('baseUrl', isValidUrl)) valid = false;
+
+            // Listen address validation
+            const listenAddr = document.getElementById('listenAddr').value;
+            if (listenAddr && !/^:?\d{1,5}$|^[\d\.]+:\d{1,5}$/.test(listenAddr)) {
+                validateField('listenAddr', () => false);
+                valid = false;
+            } else {
+                validateField('listenAddr', () => true);
+            }
+
+            // Rate limit validation
+            const rateLimit = document.getElementById('rateLimit').value;
+            if (rateLimit && (parseInt(rateLimit) < 1 || parseInt(rateLimit) > 10000)) {
+                validateField('rateLimit', () => false);
+                valid = false;
+            } else {
+                validateField('rateLimit', () => true);
+            }
+
+            // Admin password validation
+            const adminPassword = document.getElementById('adminPassword').value;
+            if (adminPassword && adminPassword.length < 4) {
+                validateField('adminPassword', () => false);
+                valid = false;
+            } else {
+                validateField('adminPassword', () => true);
+            }
+
+            return valid;
+        }
 
         // 加载当前配置
         async function loadConfig() {
@@ -80,6 +164,7 @@
                     document.getElementById('baseUrl').value = data.baseUrl || '';
                     document.getElementById('model').value = data.model || '';
                     document.getElementById('rateLimit').value = data.rateLimit || '';
+                    document.getElementById('maxRequestSize').value = data.maxRequestSize || '';
                 }
             } catch (e) {
                 console.log('获取配置失败:', e);
@@ -87,17 +172,29 @@
         }
         loadConfig();
 
+        // 实时验证
+        document.getElementById('baseUrl').addEventListener('blur', () => validateField('baseUrl', isValidUrl));
+
         // 保存配置
-        document.getElementById('configForm').addEventListener('submit', async (e) => {
+        form.addEventListener('submit', async (e) => {
             e.preventDefault();
             hideStatus();
+
+            if (!validateForm()) {
+                showStatus('请修正表单中的错误', 'error');
+                return;
+            }
+
+            submitBtn.disabled = true;
             showStatus('保存中...', 'loading');
 
             const data = {
                 listenAddr: document.getElementById('listenAddr').value || ':8080',
                 baseUrl: document.getElementById('baseUrl').value,
                 model: document.getElementById('model').value,
-                rateLimit: document.getElementById('rateLimit').value
+                rateLimit: document.getElementById('rateLimit').value,
+                maxRequestSize: document.getElementById('maxRequestSize').value,
+                adminPassword: document.getElementById('adminPassword').value
             };
 
             try {
@@ -107,15 +204,17 @@
                     body: JSON.stringify(data)
                 });
                 if (res.ok) {
-                    showStatus('配置已保存', 'success');
+                    showStatus('✅ 配置已保存！请重启服务使配置生效。', 'warning');
+                    document.getElementById('adminPassword').value = ''; // Clear password field
                 } else {
-                    showStatus('保存失败', 'error');
+                    showStatus('保存失败: ' + (await res.text()), 'error');
                 }
             } catch (e) {
                 showStatus('保存失败: ' + e.message, 'error');
+            } finally {
+                submitBtn.disabled = false;
             }
         });
-
     </script>
 </body>
 </html>

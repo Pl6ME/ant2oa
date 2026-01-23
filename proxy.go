@@ -3,13 +3,15 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/goccy/go-json"
 )
 
 // ================= Core Forward + Streaming FSM =================
@@ -28,6 +30,13 @@ var (
 	// Rate Limiting
 	limiter          chan struct{}
 	rateLimitEnabled bool
+
+	// Buffer Pool
+	bufferPool = sync.Pool{
+		New: func() any {
+			return new(bytes.Buffer)
+		},
+	}
 )
 
 func forwardOAMap(w http.ResponseWriter, r *http.Request, base, auth string, oaReqMap map[string]any, stream bool) {
@@ -55,8 +64,12 @@ func forwardOAMap(w http.ResponseWriter, r *http.Request, base, auth string, oaR
 	}
 	apiURL += "/chat/completions"
 
-	buf, err := json.Marshal(oaReqMap)
-	if err != nil {
+	// Use buffer pool for JSON marshaling
+	byteBuf := bufferPool.Get().(*bytes.Buffer)
+	byteBuf.Reset()
+	defer bufferPool.Put(byteBuf)
+
+	if err := json.NewEncoder(byteBuf).Encode(oaReqMap); err != nil {
 		log.Printf("Request Marshal Error: %v", err)
 		http.Error(w, "error processing request", 500)
 		return
@@ -66,7 +79,7 @@ func forwardOAMap(w http.ResponseWriter, r *http.Request, base, auth string, oaR
 	maxRetries := 3
 
 	for i := 0; i <= maxRetries; i++ {
-		or, err := http.NewRequestWithContext(r.Context(), "POST", apiURL, bytes.NewReader(buf))
+		or, err := http.NewRequestWithContext(r.Context(), "POST", apiURL, bytes.NewReader(byteBuf.Bytes()))
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -191,7 +204,11 @@ func forwardOAMap(w http.ResponseWriter, r *http.Request, base, auth string, oaR
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	flusher := w.(http.Flusher)
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
 	reader := bufio.NewReader(resp.Body)
 
 	startedMessage := false
@@ -200,14 +217,13 @@ func forwardOAMap(w http.ResponseWriter, r *http.Request, base, auth string, oaR
 	// FSM State
 	currentBlockType := "" // "thinking", "text", "tool_use"
 	currentBlockIdx := -1
+	hasToolUse := false // 跟踪是否有tool_use
 
 	// Buffers
 	contentBuffer := "" // for text <think> parsing
 
 	// Tool State
 	currentToolIndex := -1
-	// currentToolID := ""
-	// currentToolName := ""
 
 	emitDelta := func(text string) {
 		if text == "" {
@@ -255,11 +271,21 @@ func forwardOAMap(w http.ResponseWriter, r *http.Request, base, auth string, oaR
 		}
 		data := strings.TrimPrefix(line, "data: ")
 		if data == "[DONE]" {
+			// 处理contentBuffer中的残留数据
+			if contentBuffer != "" {
+				emitDelta(contentBuffer)
+				contentBuffer = ""
+			}
 			closeBlock()
+			// 根据是否有tool_use来决定stop_reason
+			stopReason := "end_turn"
+			if hasToolUse {
+				stopReason = "tool_use"
+			}
 			usageJson, _ := json.Marshal(map[string]any{
 				"output_tokens": lastUsage["output"],
 			})
-			w.Write([]byte("event: message_delta\ndata: {\"type\": \"message_delta\", \"delta\": {\"stop_reason\": \"end_turn\", \"stop_sequence\": null}, \"usage\": " + string(usageJson) + "}\n\n"))
+			w.Write([]byte(fmt.Sprintf("event: message_delta\ndata: {\"type\": \"message_delta\", \"delta\": {\"stop_reason\": \"%s\", \"stop_sequence\": null}, \"usage\": %s}\n\n", stopReason, string(usageJson))))
 			w.Write([]byte("event: message_stop\ndata: {\"type\": \"message_stop\"}\n\n"))
 			flusher.Flush()
 			return
@@ -402,6 +428,7 @@ func forwardOAMap(w http.ResponseWriter, r *http.Request, base, auth string, oaR
 
 				if tc.ID != "" {
 					currentToolIndex = tc.Index
+					hasToolUse = true // 标记有tool_use
 					// Start new tool_use block
 					currentBlockIdx++
 					currentBlockType = "tool_use"

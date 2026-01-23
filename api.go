@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/json"
 	"io"
 	"log"
 	"net/http"
@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/goccy/go-json"
 
 	"github.com/joho/godotenv"
 )
@@ -47,6 +49,11 @@ func checkAuth(r *http.Request) bool {
 }
 
 func configWebHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	if !checkAuth(r) {
 		w.Header().Set("WWW-Authenticate", `Basic realm="ant2oa"`)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -60,7 +67,9 @@ func configWebHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.Copy(w, f)
+	if _, err := io.Copy(w, f); err != nil {
+		log.Printf("Error serving web UI: %v", err)
+	}
 }
 
 // ================= Handlers =================
@@ -69,11 +78,76 @@ func healthHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{
+		if err := json.NewEncoder(w).Encode(map[string]string{
 			"status":    "ok",
 			"service":   "ant2oa",
 			"timestamp": time.Now().Format(time.RFC3339),
-		})
+		}); err != nil {
+			log.Printf("Error encoding health response: %v", err)
+		}
+	}
+}
+
+// enhancedHealthHandler checks both service and upstream health
+func enhancedHealthHandler(upstreamBase string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// Check upstream connectivity
+		upstreamStatus := "ok"
+		upstreamLatency := int64(0)
+
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		// Quick HEAD request to upstream
+		upstreamURL := strings.TrimSuffix(upstreamBase, "/")
+		if strings.Contains(upstreamURL, "generativelanguage.googleapis.com") {
+			if !strings.HasSuffix(upstreamURL, "/v1beta") {
+				upstreamURL += "/v1beta"
+			}
+		} else {
+			if !strings.HasSuffix(upstreamURL, "/v1") {
+				upstreamURL += "/v1"
+			}
+		}
+		upstreamURL += "/models"
+
+		start := time.Now()
+		req, err := http.NewRequestWithContext(ctx, "HEAD", upstreamURL, nil)
+		if err == nil {
+			resp, err := HttpClient.Do(req)
+			if err != nil {
+				upstreamStatus = "error: " + err.Error()
+			} else {
+				resp.Body.Close()
+				if resp.StatusCode >= 500 {
+					upstreamStatus = "error: upstream returned " + resp.Status
+				}
+			}
+			upstreamLatency = time.Since(start).Milliseconds()
+		} else {
+			upstreamStatus = "error: " + err.Error()
+		}
+
+		overallStatus := http.StatusOK
+		statusText := "ok"
+		if upstreamStatus != "ok" {
+			overallStatus = http.StatusServiceUnavailable
+			statusText = "degraded"
+		}
+
+		w.WriteHeader(overallStatus)
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"status":              statusText,
+			"service":             "ant2oa",
+			"timestamp":           time.Now().Format(time.RFC3339),
+			"upstream_status":     upstreamStatus,
+			"upstream_latency_ms": upstreamLatency,
+			"rate_limit_enabled":  rateLimitEnabled,
+		}); err != nil {
+			log.Printf("Error encoding health response: %v", err)
+		}
 	}
 }
 
@@ -89,6 +163,14 @@ func messagesHandler(base, model string) http.HandlerFunc {
 		}
 		if !strings.HasPrefix(auth, "Bearer ") {
 			auth = "Bearer " + auth
+		}
+
+		// Key Validation
+		bearerToken := strings.TrimPrefix(auth, "Bearer ")
+		allowed, _ := validateAPIKey(bearerToken)
+		if !allowed {
+			http.Error(w, "unauthorized: invalid key or rate limit exceeded", http.StatusUnauthorized)
+			return
 		}
 
 		var req AnthropicMessagesReq
@@ -119,13 +201,19 @@ func messagesHandler(base, model string) http.HandlerFunc {
 			}
 		}
 
-		// 2. Build OpenAI Messages - 使用统一的处理逻辑
+		// 2. Build OpenAI Messages
 		finalMessages := buildOpenAIMessages(req)
 
-		// Target Model
+		// Target Model & Routing
 		targetModel := model
 		if req.Model != "" {
 			targetModel = req.Model
+		}
+
+		upstreamBase, upstreamAuthKey := getUpstreamForModel(targetModel, base)
+		upstreamAuth := auth
+		if upstreamAuthKey != "" {
+			upstreamAuth = "Bearer " + upstreamAuthKey
 		}
 
 		// Extract numeric parameters with type safety
@@ -156,7 +244,7 @@ func messagesHandler(base, model string) http.HandlerFunc {
 			oaReqMap["tool_choice"] = toolChoice
 		}
 
-		forwardOAMap(w, r, base, auth, oaReqMap, req.Stream)
+		forwardOAMap(w, r, upstreamBase, upstreamAuth, oaReqMap, req.Stream)
 	}
 }
 
@@ -308,8 +396,15 @@ func extractTemperature(temp any) float64 {
 	if temp == nil {
 		return 0
 	}
-	if t, ok := temp.(float64); ok {
-		return t
+	switch v := temp.(type) {
+	case float64:
+		return v
+	case int:
+		return float64(v)
+	case string:
+		if val, err := strconv.ParseFloat(v, 64); err == nil {
+			return val
+		}
 	}
 	return 0
 }
@@ -438,12 +533,15 @@ func configHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		_ = godotenv.Load()
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"listenAddr": os.Getenv("LISTEN_ADDR"),
-			"baseUrl":    os.Getenv("OPENAI_BASE_URL"),
-			"model":      os.Getenv("OPENAI_MODEL"),
-			"rateLimit":  os.Getenv("RATE_LIMIT"),
-		})
+		if err := json.NewEncoder(w).Encode(map[string]string{
+			"listenAddr":     os.Getenv("LISTEN_ADDR"),
+			"baseUrl":        os.Getenv("OPENAI_BASE_URL"),
+			"model":          os.Getenv("OPENAI_MODEL"),
+			"rateLimit":      os.Getenv("RATE_LIMIT"),
+			"maxRequestSize": os.Getenv("MAX_REQUEST_SIZE"),
+		}); err != nil {
+			log.Printf("Error encoding config response: %v", err)
+		}
 		return
 	}
 
@@ -467,10 +565,12 @@ func configHandler(w http.ResponseWriter, r *http.Request) {
 
 		// Update values - preserve non-config lines (comments, blank lines)
 		updates := map[string]string{
-			"LISTEN_ADDR":     data["listenAddr"],
-			"OPENAI_BASE_URL": data["baseUrl"],
-			"OPENAI_MODEL":    data["model"],
-			"RATE_LIMIT":      data["rateLimit"],
+			"LISTEN_ADDR":      data["listenAddr"],
+			"OPENAI_BASE_URL":  data["baseUrl"],
+			"OPENAI_MODEL":     data["model"],
+			"RATE_LIMIT":       data["rateLimit"],
+			"MAX_REQUEST_SIZE": data["maxRequestSize"],
+			"ADMIN_PASSWORD":   data["adminPassword"],
 		}
 
 		// Track which keys we've handled
@@ -513,7 +613,7 @@ func configHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if err := os.WriteFile(envPath, []byte(strings.Join(newLines, "\n")), 0644); err != nil {
+		if err := os.WriteFile(envPath, []byte(strings.Join(newLines, "\n")), 0600); err != nil {
 			log.Printf("Error writing .env file: %v", err)
 			http.Error(w, "failed to save config", 500)
 			return
@@ -524,8 +624,4 @@ func configHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "method not allowed", 405)
-}
-
-func restartHandler(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "not found", 404)
 }

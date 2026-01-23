@@ -1,8 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"strings"
+
+	"github.com/goccy/go-json"
 )
 
 // ================= Helpers =================

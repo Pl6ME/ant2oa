@@ -220,15 +220,55 @@ curl -u :admin -X POST http://localhost:8080/api/config \
   }'
 ```
 
+### 高级配置 (可选)
+
+#### 1. 多模型路由 (`routes.json`)
+
+创建 `routes.json` 可根据模型名称自动路由到不同的上游服务：
+
+```json
+[
+  {
+    "pattern": "^claude-.*",
+    "upstream": "https://api.anthropic.com/v1",
+    "auth_key": "sk-ant-..."
+  },
+  {
+    "pattern": "^gpt-.*",
+    "upstream": "https://api.openai.com/v1"
+  }
+]
+```
+
+#### 2. 本地 API Key 管理 (`keys.json`)
+
+创建 `keys.json` 可在本地管理多个客户端 Key 及其速率限制：
+
+```json
+{
+  "sk-client-key-1": {
+    "rate_limit": 60,
+    "role": "user",
+    "active": true
+  },
+  "sk-client-key-admin": {
+    "rate_limit": 1000,
+    "role": "admin",
+    "active": true
+  }
+}
+```
+
 ### 环境变量
 
 | 变量名 | 必需 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `OPENAI_BASE_URL` | ✅ | - | OpenAI 兼容服务的基础 URL |
-| `OPENAI_MODEL` | ❌ | - | 默认模型名称（请求中未指定模型时使用）。API 请求中的 `model` 参数会透传给上游服务。 |
-| `LISTEN_ADDR` | ❌ | `:8080` | 服务监听地址和端口 |
-| `RATE_LIMIT` | ❌ | 无限制 | 每分钟请求数限制（0 表示无限制） |
-| `ADMIN_PASSWORD` | ❌ | `admin` | 配置页面访问密码 |
+| `OPENAI_BASE_URL` | ✅ | - | 默认上游服务基础 URL |
+| `OPENAI_MODEL` | ❌ | - | 默认模型名称 |
+| `LISTEN_ADDR` | ❌ | `:8080` | 服务监听地址 |
+| `RATE_LIMIT` | ❌ | 无限制 | 全局每分钟请求数限制 |
+| `MAX_REQUEST_SIZE` | ❌ | 10MB | 最大请求体大小 (字节) |
+| `ADMIN_PASSWORD` | ❌ | `admin` | Web 配置页面密码 |
 
 ### 常用配置示例
 

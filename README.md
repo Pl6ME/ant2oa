@@ -220,15 +220,50 @@ curl -u :admin -X POST http://localhost:8080/api/config \
   }'
 ```
 
+### Advanced Configuration (Optional)
+
+#### 1. Multi-Model Routing (`routes.json`)
+
+Create `routes.json` to route requests to different upstream services based on the model name:
+
+```json
+[
+  {
+    "pattern": "^claude-.*",
+    "upstream": "https://api.anthropic.com/v1",
+    "auth_key": "sk-ant-..."
+  },
+  {
+    "pattern": "^gpt-.*",
+    "upstream": "https://api.openai.com/v1"
+  }
+]
+```
+
+#### 2. Local API Key Management (`keys.json`)
+
+Create `keys.json` to manage multiple client keys and their rate limits locally:
+
+```json
+{
+  "sk-client-key-1": {
+    "rate_limit": 60,
+    "role": "user",
+    "active": true
+  }
+}
+```
+
 ### Environment Variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `OPENAI_BASE_URL` | ✅ | - | Base URL of OpenAI-compatible service |
-| `OPENAI_MODEL` | ❌ | - | Default model name (used when no model is specified in request). The `model` parameter in API requests is passed through directly to the upstream service. |
-| `LISTEN_ADDR` | ❌ | `:8080` | Service listening address and port |
-| `RATE_LIMIT` | ❌ | Unlimited | Requests per minute limit (0 means unlimited) |
-| `ADMIN_PASSWORD` | ❌ | `admin` | Password for config page access |
+| `OPENAI_BASE_URL` | ✅ | - | Default Upstream Base URL |
+| `OPENAI_MODEL` | ❌ | - | Default model name |
+| `LISTEN_ADDR` | ❌ | `:8080` | Service listening address |
+| `RATE_LIMIT` | ❌ | Unlimited | Global RPM limit |
+| `MAX_REQUEST_SIZE` | ❌ | 10MB | Max request body size (bytes) |
+| `ADMIN_PASSWORD` | ❌ | `admin` | Web UI password |
 
 ### Common Configuration Examples
 
