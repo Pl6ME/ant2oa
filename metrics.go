@@ -18,6 +18,7 @@ type Metrics struct {
 	ErrorRequests     atomic.Int64
 	TotalLatencyMs    atomic.Int64
 	UpstreamErrors    atomic.Int64
+	UpstreamRetries   atomic.Int64
 	RateLimitedCount  atomic.Int64
 	ActiveConnections atomic.Int64
 	StartTime         time.Time
@@ -91,6 +92,10 @@ func metricsHandler() http.HandlerFunc {
 		output += "# TYPE ant2oa_upstream_errors_total counter\n"
 		output += "ant2oa_upstream_errors_total " + formatInt(metrics.UpstreamErrors.Load()) + "\n\n"
 
+		output += "# HELP ant2oa_upstream_retries_total Upstream retry attempts\n"
+		output += "# TYPE ant2oa_upstream_retries_total counter\n"
+		output += "ant2oa_upstream_retries_total " + formatInt(metrics.UpstreamRetries.Load()) + "\n\n"
+
 		output += "# HELP ant2oa_rate_limited_total Rate limited requests\n"
 		output += "# TYPE ant2oa_rate_limited_total counter\n"
 		output += "ant2oa_rate_limited_total " + formatInt(metrics.RateLimitedCount.Load()) + "\n\n"
@@ -122,6 +127,7 @@ func metricsJSONHandler() http.HandlerFunc {
 			"success_requests":   metrics.SuccessRequests.Load(),
 			"error_requests":     metrics.ErrorRequests.Load(),
 			"upstream_errors":    metrics.UpstreamErrors.Load(),
+			"upstream_retries":   metrics.UpstreamRetries.Load(),
 			"rate_limited":       metrics.RateLimitedCount.Load(),
 			"active_connections": metrics.ActiveConnections.Load(),
 			"avg_latency_ms":     avgLatency,

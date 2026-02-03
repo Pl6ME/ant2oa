@@ -132,6 +132,7 @@ func main() {
 		mux,
 		loggingMiddleware,
 		corsMiddleware,
+		apiKeyAuthMiddleware,
 		maxBytesMiddleware(maxRequestSize),
 	)
 

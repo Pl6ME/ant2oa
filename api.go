@@ -48,6 +48,16 @@ func checkAuth(r *http.Request) bool {
 	return subtle.ConstantTimeCompare(decoded, []byte(":"+expectedPW)) == 1
 }
 
+func configEnvPath() string {
+	if _, err := os.Stat("env"); err == nil {
+		return "env"
+	}
+	if _, err := os.Stat(".env"); err == nil {
+		return ".env"
+	}
+	return ".env"
+}
+
 func configWebHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -220,7 +230,7 @@ func messagesHandler(base, model string) http.HandlerFunc {
 		maxTokens := extractMaxTokens(req.MaxTokens)
 		temp := extractTemperature(req.Temperature)
 		stopSequences := req.StopSequences
-		toolChoice := req.ToolChoice
+		toolChoice := normalizeToolChoice(req.ToolChoice)
 
 		// Build final request map
 		oaReqMap := map[string]any{
@@ -464,6 +474,9 @@ func modelsHandler(base string) http.HandlerFunc {
 		if auth == "" {
 			auth = r.Header.Get("x-api-key")
 		}
+		if auth != "" && !strings.HasPrefix(auth, "Bearer ") {
+			auth = "Bearer " + auth
+		}
 
 		// Handle Gemini's /v1beta path
 		modelURL := strings.TrimSuffix(base, "/")
@@ -484,9 +497,6 @@ func modelsHandler(base string) http.HandlerFunc {
 			return
 		}
 		if auth != "" {
-			if !strings.HasPrefix(auth, "Bearer ") {
-				auth = "Bearer " + auth
-			}
 			req.Header.Set("Authorization", auth)
 		}
 
@@ -531,7 +541,7 @@ func configHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == "GET" {
-		_ = godotenv.Load()
+		_ = godotenv.Load(configEnvPath())
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(map[string]string{
 			"listenAddr":     os.Getenv("LISTEN_ADDR"),
@@ -553,7 +563,7 @@ func configHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Read existing .env or create default
-		envPath := ".env"
+		envPath := configEnvPath()
 		envContent := ""
 		if _, err := os.Stat(envPath); err == nil {
 			b, _ := os.ReadFile(envPath)

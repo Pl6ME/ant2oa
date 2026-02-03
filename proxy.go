@@ -90,11 +90,24 @@ func forwardOAMap(w http.ResponseWriter, r *http.Request, base, auth string, oaR
 		resp, err = HttpClient.Do(or)
 		if err != nil {
 			log.Printf("Upstream Request Error (Auth: %s): %v", MaskKey(auth), err)
-			http.Error(w, err.Error(), 502)
-			return
+			metrics.UpstreamErrors.Add(1)
+			if i >= maxRetries {
+				http.Error(w, err.Error(), 502)
+				return
+			}
+			waitTime := time.Duration(1<<i) * time.Second
+			log.Printf("Upstream error. Retrying in %v...", waitTime)
+			metrics.UpstreamRetries.Add(1)
+			select {
+			case <-time.After(waitTime):
+				continue
+			case <-r.Context().Done():
+				http.Error(w, "request canceled during retry", 499)
+				return
+			}
 		}
 
-		if resp.StatusCode != 429 {
+		if resp.StatusCode != 429 && resp.StatusCode < 500 {
 			break
 		}
 
@@ -103,7 +116,8 @@ func forwardOAMap(w http.ResponseWriter, r *http.Request, base, auth string, oaR
 
 		if i < maxRetries {
 			waitTime := time.Duration(1<<i) * time.Second
-			log.Printf("Upstream 429 Too Many Requests. Retrying in %v...", waitTime)
+			log.Printf("Upstream %d. Retrying in %v...", resp.StatusCode, waitTime)
+			metrics.UpstreamRetries.Add(1)
 			select {
 			case <-time.After(waitTime):
 				continue
@@ -116,6 +130,9 @@ func forwardOAMap(w http.ResponseWriter, r *http.Request, base, auth string, oaR
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
+		if resp.StatusCode >= 500 {
+			metrics.UpstreamErrors.Add(1)
+		}
 		rb, err := io.ReadAll(resp.Body)
 		if err != nil {
 			log.Printf("Error reading error response body: %v", err)
@@ -163,8 +180,8 @@ func forwardOAMap(w http.ResponseWriter, r *http.Request, base, auth string, oaR
 		// 3. Tool Calls
 		for _, tc := range choice.Message.ToolCalls {
 			args := "{}"
-			if len(tc.Function.Parameters) > 0 {
-				args = string(tc.Function.Parameters)
+			if tc.Function.Arguments != "" {
+				args = tc.Function.Arguments
 			}
 			blocks = append(blocks, map[string]any{
 				"type":  "tool_use",
@@ -418,52 +435,50 @@ func forwardOAMap(w http.ResponseWriter, r *http.Request, base, auth string, oaR
 				closeBlock()
 			}
 
-			tc := delta.ToolCalls[0]
+			for _, tc := range delta.ToolCalls {
+				// Check if new tool call started (index changed or ID present)
+				if tc.Index != currentToolIndex || tc.ID != "" {
+					if currentBlockType == "tool_use" && tc.Index != currentToolIndex {
+						closeBlock()
+					}
 
-			// Check if new tool call started (index changed or ID present)
-			if tc.Index != currentToolIndex || tc.ID != "" {
-				if currentBlockType == "tool_use" && tc.Index != currentToolIndex {
-					closeBlock()
+					if tc.ID != "" {
+						currentToolIndex = tc.Index
+						hasToolUse = true // 标记有tool_use
+						// Start new tool_use block
+						currentBlockIdx++
+						currentBlockType = "tool_use"
+
+						startJson, _ := json.Marshal(map[string]any{
+							"type":  "content_block_start",
+							"index": currentBlockIdx,
+							"content_block": map[string]string{
+								"type": "tool_use",
+								"id":   tc.ID,
+								"name": tc.Function.Name,
+							},
+						})
+						w.Write([]byte("event: content_block_start\ndata: " + string(startJson) + "\n\n"))
+					}
 				}
 
-				if tc.ID != "" {
-					currentToolIndex = tc.Index
-					hasToolUse = true // 标记有tool_use
-					// Start new tool_use block
-					currentBlockIdx++
-					currentBlockType = "tool_use"
+				// Streaming arguments
+				if tc.Function.Arguments != "" {
+					// Ensure we are in tool_use block (sometimes ID comes first, args later)
+					if currentBlockType != "tool_use" {
+						// If it happens (packet split weirdly), we rely on previous state.
+					}
 
-					startJson, _ := json.Marshal(map[string]any{
-						"type":  "content_block_start",
+					deltaJson, _ := json.Marshal(map[string]any{
+						"type":  "content_block_delta",
 						"index": currentBlockIdx,
-						"content_block": map[string]string{
-							"type": "tool_use",
-							"id":   tc.ID,
-							"name": tc.Function.Name,
+						"delta": map[string]string{
+							"type":         "input_json_delta",
+							"partial_json": tc.Function.Arguments,
 						},
 					})
-					w.Write([]byte("event: content_block_start\ndata: " + string(startJson) + "\n\n"))
+					w.Write([]byte("event: content_block_delta\ndata: " + string(deltaJson) + "\n\n"))
 				}
-			}
-
-			// Streaming arguments
-			if tc.Function.Arguments != "" {
-				// Ensure we are in tool_use block (sometimes ID comes first, args later)
-				if currentBlockType != "tool_use" {
-					// Should ideally not happen if ID comes first.
-					// If it happens (packet split weirdly), we rely on previous state?
-					// Assume ID always sent at start of tool index.
-				}
-
-				deltaJson, _ := json.Marshal(map[string]any{
-					"type":  "content_block_delta",
-					"index": currentBlockIdx,
-					"delta": map[string]string{
-						"type":         "input_json_delta",
-						"partial_json": tc.Function.Arguments,
-					},
-				})
-				w.Write([]byte("event: content_block_delta\ndata: " + string(deltaJson) + "\n\n"))
 			}
 		}
 

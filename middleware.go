@@ -29,6 +29,9 @@ func (rw *responseWriter) Flush() {
 // loggingMiddleware logs request details
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		metrics.ActiveConnections.Add(1)
+		defer metrics.ActiveConnections.Add(-1)
+
 		start := time.Now()
 		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 
@@ -36,7 +39,50 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 		duration := time.Since(start)
 		log.Printf("%s %s %d %v", r.Method, r.URL.Path, rw.statusCode, duration)
+
+		metrics.RecordRequest(r.URL.Path, duration.Milliseconds(), rw.statusCode >= http.StatusBadRequest)
 	})
+}
+
+func apiKeyAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions || !isProtectedPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		auth := r.Header.Get("Authorization")
+		if auth == "" {
+			auth = r.Header.Get("x-api-key")
+		}
+		if auth == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		if !strings.HasPrefix(auth, "Bearer ") {
+			auth = "Bearer " + auth
+		}
+		r.Header.Set("Authorization", auth)
+
+		bearerToken := strings.TrimPrefix(auth, "Bearer ")
+		allowed, _ := validateAPIKey(bearerToken)
+		if !allowed {
+			http.Error(w, "unauthorized: invalid key or rate limit exceeded", http.StatusUnauthorized)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isProtectedPath(path string) bool {
+	switch path {
+	case "/v1/messages", "/v1/complete", "/v1/models":
+		return true
+	default:
+		return false
+	}
 }
 
 // corsMiddleware handles CORS headers
@@ -44,13 +90,14 @@ func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if origin == "" {
-			origin = "*"
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Vary", "Origin")
 		}
-
-		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key, anthropic-version")
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 
 		if r.Method == http.MethodOptions {

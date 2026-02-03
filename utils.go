@@ -56,6 +56,57 @@ func parseContentWithThinkTags(raw string) []map[string]any {
 	return blocks
 }
 
+func normalizeToolChoice(tc any) any {
+	if tc == nil {
+		return nil
+	}
+
+	switch v := tc.(type) {
+	case string:
+		switch v {
+		case "auto", "none", "required":
+			return v
+		case "any":
+			return "required"
+		default:
+			return v
+		}
+	case map[string]any:
+		rawType, _ := v["type"].(string)
+		switch rawType {
+		case "auto":
+			return "auto"
+		case "any":
+			return "required"
+		case "none":
+			return "none"
+		case "tool":
+			if name, _ := v["name"].(string); name != "" {
+				return map[string]any{
+					"type": "function",
+					"function": map[string]any{
+						"name": name,
+					},
+				}
+			}
+		case "function":
+			if fn, ok := v["function"].(map[string]any); ok {
+				if name, _ := fn["name"].(string); name != "" {
+					return map[string]any{
+						"type": "function",
+						"function": map[string]any{
+							"name": name,
+						},
+					}
+				}
+			}
+		}
+		return v
+	default:
+		return tc
+	}
+}
+
 func MaskKey(key string) string {
 	if len(key) <= 8 {
 		return "********"

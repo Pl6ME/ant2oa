@@ -45,7 +45,7 @@ go run .
 
 2. **Configure Environment Variables**
 
-Create `.env` file:
+Create `env` or `.env` file:
 
 ```bash
 # Required Configuration
@@ -193,7 +193,7 @@ Access the web configuration interface at `http://localhost:8080/config` in your
 The web UI allows you to:
 - Configure service settings through a simple form
 - Set listen address, OpenAI service URL, model name, and rate limit
-- Configuration is automatically saved to `.env` file
+- Configuration is automatically saved to `env` or `.env` (prefers existing `env` if present)
 
 ```bash
 # Access config page with authentication (browser will prompt)
@@ -250,6 +250,11 @@ Create `keys.json` to manage multiple client keys and their rate limits locally:
     "rate_limit": 60,
     "role": "user",
     "active": true
+  },
+  "sk-client-key-admin": {
+    "rate_limit": 1000,
+    "role": "admin",
+    "active": true
   }
 }
 ```
@@ -292,9 +297,9 @@ The service provides the following API endpoints:
 
 - `GET /config` - Web configuration UI (requires admin auth)
 - `GET/POST /api/config` - Configuration management API (requires admin auth)
-- `POST /v1/messages` - Send messages (main endpoint)
-- `POST /v1/complete` - Text completion
-- `GET /v1/models` - Get available models list
+- `POST /v1/messages` - Send messages (main endpoint, requires API Key)
+- `POST /v1/complete` - Text completion (requires API Key)
+- `GET /v1/models` - Get available models list (requires API Key)
 - `GET /health` - Health check
 
 ### Usage Examples
@@ -308,6 +313,7 @@ curl http://localhost:8080/health
 # Send message
 curl -X POST http://localhost:8080/v1/messages \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <api-key>" \
   -d '{
     "model": "deepseek-chat",
     "max_tokens": 1000,
@@ -324,6 +330,7 @@ const response = await fetch('http://localhost:8080/v1/messages', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
+    'Authorization': 'Bearer <api-key>',
   },
   body: JSON.stringify({
     model: 'deepseek-chat',
@@ -349,7 +356,7 @@ console.log(data);
 
 2. **Request Failed**
    - Verify `OPENAI_BASE_URL` is accessible
-   - Confirm API key configuration is correct
+   - Confirm API Key configuration is correct
    - Check network connectivity
 
 3. **Model Not Supported**
@@ -380,7 +387,8 @@ ant2oa/
 ├── install.go      # Service installation script
 ├── go.mod          # Go module definition
 ├── .env            # Environment configuration (optional)
-└── README.md       # Project documentation
+├── README.md       # Project documentation (English)
+└── README_ZH.md    # Project documentation (Chinese)
 ```
 
 ## 📈 Performance Features

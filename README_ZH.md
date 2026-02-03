@@ -3,7 +3,7 @@
 > 将 OpenAI 兼容 API 转换为 Anthropic API 格式的高性能代理服务
 
 [![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://golang.org/dl/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat)](LICENSE)
+[![License](https://img.shields.io/badge/License-GPL3-blue.svg?style=flat)](LICENSE)
 
 🌐 **Language / 语言**: [English](README.md) | [中文](README_ZH.md)
 
@@ -36,7 +36,7 @@
 
 ```bash
 # 克隆项目
-git clone <your-repo-url>
+git clone https://github.com/Pl6ME/ant2oa.git
 cd ant2oa
 
 # 运行服务
@@ -45,7 +45,7 @@ go run .
 
 2. **配置环境变量**
 
-创建 `.env` 文件：
+创建 `env` 或 `.env` 文件：
 
 ```bash
 # 必需配置
@@ -193,7 +193,7 @@ docker-compose up -d
 Web UI 允许您：
 - 通过简单表单配置服务设置
 - 设置监听地址、OpenAI 服务 URL、模型名称和速率限制
-- 配置自动保存到 `.env` 文件
+- 配置自动保存到 `env` 或 `.env`（优先使用已存在的 `env`）
 
 ```bash
 # 访问配置页面（浏览器会提示输入密码）
@@ -297,9 +297,9 @@ OPENAI_MODEL=your-model-name  # 可选：作为默认模型
 
 - `GET /config` - Web 配置界面（需要管理员认证）
 - `GET/POST /api/config` - 配置管理 API（需要管理员认证）
-- `POST /v1/messages` - 发送消息（主要端点）
-- `POST /v1/complete` - 文本补全
-- `GET /v1/models` - 获取可用模型列表
+- `POST /v1/messages` - 发送消息（主要端点，需要 API Key）
+- `POST /v1/complete` - 文本补全（需要 API Key）
+- `GET /v1/models` - 获取可用模型列表（需要 API Key）
 - `GET /health` - 健康检查
 
 ### 使用示例
@@ -313,6 +313,7 @@ curl http://localhost:8080/health
 # 发送消息
 curl -X POST http://localhost:8080/v1/messages \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <api-key>" \
   -d '{
     "model": "deepseek-chat",
     "max_tokens": 1000,
@@ -329,6 +330,7 @@ const response = await fetch('http://localhost:8080/v1/messages', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
+    'Authorization': 'Bearer <api-key>',
   },
   body: JSON.stringify({
     model: 'deepseek-chat',
@@ -354,7 +356,7 @@ console.log(data);
 
 2. **请求失败**
    - 验证 `OPENAI_BASE_URL` 是否可访问
-   - 确认 API 密钥配置正确
+   - 确认 API Key 配置正确
    - 检查网络连接
 
 3. **模型不支持**
@@ -385,7 +387,8 @@ ant2oa/
 ├── install.go      # 服务安装脚本
 ├── go.mod          # Go 模块定义
 ├── .env            # 环境配置（可选）
-└── README.md       # 项目文档
+├── README.md       # 项目文档（英文）
+└── README_ZH.md    # 项目文档（中文）
 ```
 
 ## 📈 性能特性
@@ -403,7 +406,7 @@ ant2oa/
 
 ## 📄 许可证
 
-本项目采用 MIT 许可证。详情请查看 [LICENSE](LICENSE) 文件。
+本项目采用 GNU GPL v3 许可证。详情请查看 [LICENSE](LICENSE) 文件。
 
 ## 🙏 致谢
 
